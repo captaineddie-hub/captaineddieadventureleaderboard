@@ -783,12 +783,7 @@ const S = {
   todayWashup:false     // daily washup collected
 };
 const PHASES=[["🌅","Morning"],["☀️","Midday"],["🌇","Evening"],["🌙","Night"]];
-const SKY=[
-  "linear-gradient(180deg,#FFD9A0 0%,#8FD3E8 55%)",
-  "linear-gradient(180deg,#8FD3E8 0%,#BDE7F2 60%)",
-  "linear-gradient(180deg,#FF9E6D 0%,#FFC96B 45%,#9CCFE0 80%)",
-  "linear-gradient(180deg,#0B1D33 0%,#16324F 60%)"
-];
+/* SKY gradient array removed — superseded by the photo background + #tint overlay */
 const ITEMS={
   fish:["🐟","Raw fish"],crab:["🦀","Crab"],coconut:["🥥","Coconut"],
   driftwood:["🪵","Driftwood"],fronds:["🌿","Palm fronds"],vines:["🧵","Vines"],flint:["🪨","Flint"],
@@ -2484,62 +2479,172 @@ function eddieMoveTo(leftPct,ms,g){
   eddieW.style.left=leftPct+"%";
   return lifeSleep(ms,g);
 }
+/* ═══ IDLE SCENE DIRECTOR — Johnny Castaway vignettes ═══
+   Full little stories with a setup, action, and punchline. Interruptible
+   by any tap (LIFE.gen check inside every await). Some scenes pay out. */
+const SCENE_PROPS=[];
+function sceneProp(txt,css){
+  const p=document.createElement("div");
+  p.textContent=txt;p.style.cssText=css;scene.appendChild(p);
+  SCENE_PROPS.push(p);return p;
+}
+function clearSceneProps(){while(SCENE_PROPS.length){const p=SCENE_PROPS.pop();if(p.parentNode)p.remove()}}
+async function moveEddie(dest,msPerPct,strideMs,g){
+  const img=$("eddieImg");
+  const cur=parseFloat(eddieW.style.left||"50");
+  const dist=Math.abs(dest-cur);
+  if(dist<2)return;
+  if(activeGait)activeGait.stop();
+  activeGait=runGait(img,F.run,strideMs,gaitFlip(F.run,dest<cur));
+  eddieW.style.transition="left "+Math.round(dist*msPerPct)+"ms ease-in-out";
+  eddieW.style.left=dest+"%";
+  try{await lifeSleep(dist*msPerPct+60,g)}
+  finally{if(activeGait){activeGait.stop();activeGait=null}img.src=SPR.idle}
+}
+async function poseHold(frames,fps,holdMs,g){
+  playStory(frames,fps,holdMs,false,"idle");
+  await lifeSleep(frames.length/fps*1000+holdMs,g);
+}
+
+const SCENES=[
+async function scRunOff(g){ // full off-screen exit and return — the "where'd he go?" beat
+  say(["Be right back!","One sec, Captain's business.","Gotta go check something."][rnd(3)]);
+  await lifeSleep(200,g);
+  const img=$("eddieImg");
+  if(activeGait)activeGait.stop();
+  activeGait=runGait(img,F.run,420,gaitFlip(F.run,true));
+  eddieW.style.transition="left 1500ms linear";eddieW.style.left="-28%";
+  await lifeSleep(1560,g);
+  if(activeGait){activeGait.stop();activeGait=null}
+  await lifeSleep(650+rnd(1100),g); // gone — genuine suspense beat
+  const back=18+rnd(40);
+  activeGait=runGait(img,F.run,420,gaitFlip(F.run,false));
+  eddieW.style.transition="left "+Math.abs(back+28)*32+"ms linear";
+  eddieW.style.left=back+"%";
+  await lifeSleep(Math.abs(back+28)*32+80,g);
+  if(activeGait){activeGait.stop();activeGait=null}
+  img.src=SPR.idle;
+  say(["False alarm.","Thought I saw a snack. Nope.","All clear, Captain's log: nothing."][rnd(3)]);
+  await lifeSleep(1600,g);
+},
+async function scIdleFish(g){ // casts on his own — sometimes junk, sometimes nothing, flavor only
+  say("Let's see what's biting...");
+  await moveEddie(24+rnd(12),46,460,g);
+  playStory(F.fish,7,300,true,null);
+  await lifeSleep(F.fish.length/7*1000+300,g);
+  await lifeSleep(900+rnd(900),g); // the wait
+  if(rnd(10)<4){
+    const j=JUNK[rnd(JUNK.length)];
+    const img=$("eddieImg");
+    stopAllAnim();img.style.transform="";
+    if(F.catch&&F.catch[j.art])img.src=F.catch[j.art];
+    SFX.fail();
+    say("Hooked... "+j.n+"! "+j.line);
+    await lifeSleep(2200,g);
+  }else{
+    playStory(F.pointG,4,500,false,"idle");
+    say(["Nothing. The island's holding out on me.","Not even a nibble.","Fish are on vacation, apparently."][rnd(3)]);
+    await lifeSleep(1800,g);
+  }
+  const img2=$("eddieImg");img2.src=SPR.idle;
+},
+async function scCoconutRun(g){ // jog to the palm, shake it, coconut drops, +1
+  say("Snack run! 🥥");
+  await moveEddie(13,42,460,g);
+  playStory(F.shake,8,300,false,"gather");
+  await lifeSleep(900,g);
+  const nut=sceneProp("🥥","position:absolute;left:9%;bottom:38%;font-size:30px;z-index:4;transition:bottom .55s cubic-bezier(.3,0,.7,1.4)");
+  requestAnimationFrame(()=>{nut.style.bottom="7%"});
+  await lifeSleep(700,g);
+  SFX.thunk();
+  await lifeSleep(1100,g);
+  nut.remove();
+  S.inv.coconut+=1;render();
+  floaty("+1 🥥",90,scene.clientHeight*0.7);
+  say("The island provides!");
+  await lifeSleep(900,g);
+  await moveEddie(40+rnd(14),46,460,g);
+},
+async function scShipTease(g){ // distant yacht passes, Eddie waves, it sails on
+  partyBoatShow(false);
+  await lifeSleep(300,g);
+  partyBoatMove(46,5200);
+  await moveEddie(30,34,460,g);
+  if(F.backwaveLoop)playCycle(F.backwaveLoop,8,3600,false,null);
+  else playStory(F.waveG,5,2400,false,"idle");
+  say("HEY!! HEEEEY!! OVER HERE!!");
+  await lifeSleep(3800,g);
+  stopAllAnim();$("eddieImg").src=SPR.idle;
+  partyBoatMove(115,3200);
+  await lifeSleep(1500,g);
+  playStory(F.pointG,4,900,false,"idle");
+  say(["...they had JET SKIS and no eyes?!","Not even a wave back. Cold.","One day, one of them will stop. ONE DAY."][rnd(3)]);
+  await lifeSleep(2400,g);
+},
+async function scCrabChase(g){ // a crab bolts, Eddie gives chase, crab wins
+  const crab=sceneProp("🦀","position:absolute;left:64%;bottom:6%;font-size:30px;z-index:4;transition:left 2.6s linear");
+  say("A crab! Dinner, come here!");
+  await lifeSleep(350,g);
+  requestAnimationFrame(()=>{crab.style.left="6%"});
+  await moveEddie(14,26,440,g);
+  crab.remove();
+  const sp=sceneProp("💦","position:absolute;left:5%;bottom:9%;font-size:24px;z-index:4");
+  setTimeout(()=>sp.remove(),800);
+  playStory(F.pointG,4,600,false,"idle");
+  say(["He's FAST. Respect.","Straight into the surf. Coward!","Crab: 1. Captain: 0."][rnd(3)]);
+  await lifeSleep(2200,g);
+  await moveEddie(38+rnd(16),46,460,g);
+},
+async function scBeachcomb(g){ // shell hunting pays a shell
+  say("Leilani loves these...");
+  const spot=20+rnd(30);
+  await moveEddie(spot,52,480,g);
+  const sh=sceneProp("🐚","position:absolute;left:"+(spot-3)+"%;bottom:5%;font-size:24px;z-index:2");
+  const digMs=Math.round(F.dig.length/8*1000); // real anim length — no more guessed timing
+  playStory(F.dig,8,1300,false,null); // hold the FOUND-IT frame a full 1.3s — no more snap-cut
+  await lifeSleep(digMs+1300,g);
+  sh.remove();S.shells+=1;render();
+  floaty("+1 🐚",scene.clientWidth*spot/100,scene.clientHeight*0.72);
+  SFX.pick();
+  await lifeSleep(700,g);
+  const img=$("eddieImg");img.src=SPR.idle;
+},
+async function scHorizonWatch(g){ // quiet beat — point + island monologue
+  await moveEddie(52,48,470,g);
+  await poseHold(F.pointG,4,1400,g);
+  say(["That island's got fruit trees. I can SMELL them.","Storm's coming... or lunch. Hard to say.","Lea Island: population ME."][rnd(3)]);
+  await lifeSleep(2200,g);
+}
+];
+let sceneCooldown=0;
 async function lifeAct(){
   if(LIFE.busy||S.over||S.busy||SS.active)return;
-  if(mission&&(mission.type==="party"||mission.type==="frenzy"))return; // those two animate Eddie themselves
-  if(document.querySelector(".overlay.show"))return; // NEVER wander during fishing/map/camp/any panel
+  if(mission&&(mission.type==="party"||mission.type==="frenzy"))return;
+  if(document.querySelector(".overlay.show"))return;
   LIFE.busy=true;const g=++LIFE.gen;
   const img=$("eddieImg");
   try{
-    const act=rnd(8);
-    if(act<=2){ // stroll to a random spot and back
-      const cur=parseFloat(eddieW.style.left||"50");
-      const dest=rnd(10)<4?42+rnd(12):18+rnd(38); // 40% of strolls head home to centre (42-54%), rest roam 18-56%
-      const dist=Math.abs(dest-cur);
-      if(dist>8){
-        const MSPP=48, STRIDE=MSPP*16; // easy beach jog, legs synced to ground
-        activeGait&&activeGait.stop();
-        activeGait=runGait(img,F.run,STRIDE,gaitFlip(F.run,dest<cur));
-        await eddieMoveTo(dest,dist*MSPP,g);
-        activeGait&&activeGait.stop();activeGait=null;
-        img.style.transform="";img.src=SPR.idle;
+    if(sceneCooldown<=0 && !mission){
+      sceneCooldown=2+rnd(2); // a full vignette, then a couple of micro-acts between
+      await SCENES[rnd(SCENES.length)](g);
+    }else{
+      sceneCooldown--;
+      const act=rnd(4);
+      if(act===0){ await moveEddie(rnd(10)<4?42+rnd(12):18+rnd(38),50,470,g); }
+      else if(act===1){ await poseHold(F.raiseG,4,600,g); }
+      else if(act===2){ await poseHold(F.waveG,5,300,g); }
+      else{ // toward-camera pacing
+        if(activeGait)activeGait.stop();
+        let wi=0;img.style.animation="none";
+        const paceT=setInterval(()=>{wi=(wi+1)%F.walk.length;img.src=F.walk[wi]},170);
+        const cur=parseFloat(eddieW.style.left||"50");
+        eddieW.style.transition="left 2600ms ease-in-out";
+        eddieW.style.left=(cur+(rnd(2)?6:-6))+"%";
+        try{await lifeSleep(2700,g)}finally{clearInterval(paceT);img.style.animation="";img.src=SPR.idle}
       }
-    }else if(act===3){ // point at the horizon
-      playStory(F.pointG,4,1100,false,"idle");
-      if(rnd(3)===0)say(["That island's mocking me...","Is that a sail?! ...no. Cloud.","One day, horizon. One day."][rnd(3)]);
-      await lifeSleep(2600,g);
-    }else if(act===4){ // stretch/arm raise
-      playStory(F.raiseG,4,500,false,"idle");
-      await lifeSleep(2000,g);
-    }else if(act===5){ // Johnny Castaway exit: run clean off-screen, beat, run back in
-      const cur=parseFloat(eddieW.style.left||"50");
-      const off=-30; // fully off the left edge (box half-width ~23%)
-      const RUN_MSPP=26, RUN_STRIDE=RUN_MSPP*16; // legs synced to ground: 1 stride ≈ 16% travel
-      activeGait&&activeGait.stop();
-      activeGait=runGait(img,F.run,RUN_STRIDE,gaitFlip(F.run,true));
-      await eddieMoveTo(off,Math.abs(off-cur)*RUN_MSPP,g);
-      activeGait&&activeGait.stop();activeGait=null;
-      await lifeSleep(500+rnd(900),g); // ...gone. what's he doing over there?
-      const back=18+rnd(36);
-      activeGait=runGait(img,F.run,RUN_STRIDE,gaitFlip(F.run,false));
-      await eddieMoveTo(back,Math.abs(back-off)*RUN_MSPP,g);
-      activeGait&&activeGait.stop();activeGait=null;
-      img.style.transform="";img.src=SPR.idle;
-      if(rnd(2)===0)say(["Captain's cardio! Gotta stay ship-shape. 🏃","Thought I saw something down the beach. Nope. Sand.","Beach patrol complete. All clear, Captain."][rnd(3)]);
-    }else if(act===6){ // gaze + wave at nothing
-      playStory(F.waveG,5,300,false,"happy");
-      await lifeSleep(2400,g);
-      img.src=SPR.idle;
-    }else{ // pace toward camera — the walk sheet, used where its angle works
-      if(activeGait)activeGait.stop();
-      let wi=0;img.style.animation="none";
-      const paceT=setInterval(()=>{wi=(wi+1)%F.walk.length;img.src=F.walk[wi]},170);
-      const cur=parseFloat(eddieW.style.left||"50");
-      eddieW.style.transition="left 2600ms ease-in-out";
-      eddieW.style.left=(cur+(rnd(2)?6:-6))+"%";
-      try{await lifeSleep(2700,g)}finally{clearInterval(paceT);img.style.animation="";img.src=SPR.idle}
     }
-  }catch(e){/* interrupted — fine */}
+  }catch(e){/* interrupted */}
+  clearSceneProps();
   LIFE.busy=false;
 }
 function lifeSchedule(){
@@ -2555,6 +2660,7 @@ function lifeInterrupt(){
   const L=parseFloat(eddieW.style.left||"50");
   if(L<8)eddieW.style.left="16%";
   if(L>92)eddieW.style.left="84%";
+  clearSceneProps();
   lifeSchedule();
 }
 ["pointerdown","touchstart"].forEach(ev=>document.addEventListener(ev,lifeInterrupt,{passive:true}));
