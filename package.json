@@ -1,0 +1,9 @@
+{
+  "name": "captain-eddie-adventures",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Captain Eddie Adventures — Salt & Sound Apparel browser game with global leaderboard",
+  "dependencies": {
+    "@netlify/blobs": "^7.0.0"
+  }
+}
