@@ -331,6 +331,7 @@ td.r,th.r{text-align:right}
     isOwner:async function(){return false},canEdit:async function(){return false},can:async function(){return null},profiles:async function(){return {}}};
   var RD=location.origin+'/game.html';
   var account={
+    google:false,
     info:async function(){var sb=await ready;if(!sb)return null;var u=(await sb.auth.getUser()).data.user;return u?{guest:!!u.is_anonymous,email:u.email||'',provider:(u.app_metadata&&u.app_metadata.provider)||''}:null},
     saveEmail:async function(email){var sb=await ready;var r=await sb.auth.updateUser({email:email},{emailRedirectTo:RD});if(r.error)throw r.error},
     saveGoogle:async function(){var sb=await ready;var r=await sb.auth.linkIdentity({provider:'google',options:{redirectTo:RD}});if(r.error)throw r.error},
@@ -1295,11 +1296,11 @@ async function renderAcct(){
   const A=window.claude&&window.claude.account,el=$('acctCard');if(!A){el.hidden=true;return}
   let info=null;try{info=await A.info()}catch(e){}
   if(!info){el.hidden=true;return}el.hidden=false;
-  if(!info.guest){el.innerHTML=`<h3>ACCOUNT</h3><div class="big">Career saved</div><p class="muted">Signed in${info.email?' as <b>'+esc(info.email)+'</b>':' with Google'}. Your cash, upgrades and leagues follow you to any phone.</p><button class="mini" type="button" data-acct="out">Sign out</button>`;return}
+  if(!info.guest){el.innerHTML=`<h3>ACCOUNT</h3><div class="big">Career saved</div><p class="muted">Signed in${info.email?' as <b>'+esc(info.email)+'</b>':' with Google'}. Your cash, upgrades and leagues follow you to any phone. To play on another phone, open the game there and sign in with this email from Garage.</p><button class="mini" type="button" data-acct="out">Sign out</button>`;return}
   const si=acctMode==='in';
   el.innerHTML=`<h3>${si?'SIGN IN':'SAVE YOUR CAREER'}</h3><p class="muted">${si?'Sign in to load your saved career. The guest progress on this phone will be replaced.':"You're playing as a guest. Save your career to keep your cash, upgrades and leagues on any phone, and never lose them."}</p>
-    <button class="ghost" type="button" data-acct="google">Continue with Google</button>
-    <div class="field"><label for="acEmail">OR USE EMAIL</label><input class="txt" id="acEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com"></div>
+    ${A.google?'<button class="ghost" type="button" data-acct="google">Continue with Google</button>':''}
+    <div class="field"><label for="acEmail">${A.google?'OR USE EMAIL':'EMAIL'}</label><input class="txt" id="acEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com"></div>
     <button class="ghost" type="button" data-acct="email">Email me a sign-in link</button>
     <p class="muted" id="acMsg" role="status"></p>
     <p class="muted"><button class="linkbtn" type="button" data-acct="toggle">${si?'New here? Save this career instead':'Already saved a career? Sign in'}</button> · <a href="/privacy.html" target="_blank" rel="noopener">Privacy</a></p>`;
