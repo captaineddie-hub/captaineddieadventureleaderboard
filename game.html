@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"><meta name="theme-color" content="#0a0e16"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="description" content="Stock car racing with friends: short track, dirt track and demolition derby."><style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style></head><body><title>Short Track Showdown</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; object-src 'none'; base-uri 'none'; form-action 'none'"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"><meta name="theme-color" content="#0a0e16"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="description" content="Stock car racing with friends: short track, dirt track and demolition derby."><style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style></head><body><title>Short Track Showdown</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -282,17 +282,21 @@ td.r,th.r{text-align:right}
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js" integrity="sha384-0w2KAL2YHP6wKOkUDzkCDGgVvfmHnj02DHeQ6XcHOgTfFsGyonKOpShMH1x6nk9o" crossorigin="anonymous"></script>
 <script>
 (function(){
   if(window.claude)return;
+  var AUTH_ID=null;
   var ready=(async function(){
     try{var r=await fetch('/sb-config.json',{cache:'no-store'});var cfg=await r.json();
       if(!cfg.url||!cfg.key||!window.supabase)return null;
-      return window.supabase.createClient(cfg.url,cfg.key,{auth:{persistSession:false}});}catch(e){return null}
+      var sb=window.supabase.createClient(cfg.url,cfg.key,{auth:{persistSession:true,autoRefreshToken:true,storageKey:'sts-auth'}});
+      var ses=(await sb.auth.getSession()).data.session;
+      if(!ses){var a=await sb.auth.signInAnonymously();if(a.error||!a.data.session)return null;ses=a.data.session}
+      AUTH_ID='d_'+String(ses.user.id).replace(/-/g,'');
+      return sb;}catch(e){return null}
   })();
-  function devId(){var id=null;try{id=localStorage.getItem('sts-device-id')}catch(e){}
-    if(!id){id='d_'+((window.crypto&&crypto.randomUUID)?crypto.randomUUID().replace(/-/g,''):Math.random().toString(36).slice(2)+Date.now().toString(36));try{localStorage.setItem('sts-device-id',id)}catch(e){}}return id}
+  function devId(){return AUTH_ID}
   function snapDoc(path,row){var id=path.split('/').pop(),d=row?row.data:undefined;return {id:id,exists:!!row,data:function(){return d},metadata:{fromCache:false,hasPendingWrites:false}}}
   function mergeDeep(a,b){var o=Object.assign({},a);for(var k in b){var v=b[k];if(v&&typeof v==='object'&&!Array.isArray(v)&&o[k]&&typeof o[k]==='object'&&!Array.isArray(o[k]))o[k]=mergeDeep(o[k],v);else o[k]=v}return o}
   function makeDB(sb){
@@ -1163,21 +1167,21 @@ function renderLeagueDetail(){
   const box=$('leagueBox'),D=league.data,doc=D&&D.doc,back='<button class="mini" type="button" data-act="back">‹ All leagues</button>';
   if(!doc){box.innerHTML=back+`<div class="card"><h3>LEAGUE</h3><p class="muted">${league.slow?"Can't reach the league right now. It may be a connection problem; try again in a moment.":'Loading the league…'}</p></div>`;return}
   if(doc.missing){box.innerHTML=back+'<div class="card"><h3>LEAGUE</h3><p class="muted">This league no longer exists.</p></div>';return}
-  const ev=doc.event||{mode:'short',laps:10,diff:'pro',raceNo:1},mem={};for(const m of D.members)mem[m.uid]=m;
+  const ev=cleanEv(doc.event),mem={};for(const m of D.members)if(m&&typeof m.uid==='string')mem[m.uid]=m;
   const chip=u=>{const m=mem[u]||{},c=okCol(m.col);return `<span class="carchip" style="--c:${c};--t:${lum(c)>.6?'#111':'#fff'};--tr:${okCol(m.trim)};min-width:32px;height:24px;font-size:13px">${esc(String(m.num||'?').slice(0,2))}</span>`};
   const nm=u=>esc((mem[u]&&mem[u].name)||'Driver')+(u===UID?' (you)':'');
   const evTxt=`${MODE_NAME[ev.mode]||'Race'}${ev.mode==='derby'?'':' · '+ev.laps+' laps'} · ${DIFF_NAME[ev.diff]||'Pro'} field`;
   const res=D.results.filter(r=>r.raceNo===ev.raceNo).sort((a,b)=>a.pos-b.pos||a.time-b.time);
   const st=D.standings.slice().sort((a,b)=>b.points-a.points||b.wins-a.wins);
   const owner=doc.owner===UID,prev={m:$('nxMode')&&$('nxMode').value,l:$('nxLaps')&&$('nxLaps').value,d:$('nxDiff')&&$('nxDiff').value};
-  const fin=r=>r.mode==='derby'?(r.pos===1?'Last running':'P'+r.pos):'P'+r.pos+' · '+(r.time>0?r.time.toFixed(1)+'s':'');
+  const fin=r=>{const p=Math.floor(num(r.pos,1,99)),t=num(r.time,-1e6,1e6);return r.mode==='derby'?(p===1?'Last running':'P'+p):'P'+p+(t>0?' · '+t.toFixed(1)+'s':'')};
   box.innerHTML=back+
    `<div class="card"><div class="lrow"><span class="big">${esc(doc.name)}</span><span class="code">${esc(doc.code)}</span></div>
      <p class="muted">To invite friends, send them this game's link and the code <b>${esc(doc.code)}</b>. They open the game, set a driver name in the Garage, then join from League › Join league. No sign-up needed.</p>
      <button class="mini" type="button" data-act="copy">Copy invite message</button></div>
    <div class="card"><h3>RACE ${ev.raceNo}</h3><div class="big">${evTxt}</div><p class="muted">Everyone faces the same field. Your best finish counts, so run it as many times as you like until the next race is set.</p><button class="go" type="button" data-act="run" style="font-size:18px;margin:0">Run league race</button></div>
-   <div class="card"><h3>RACE ${ev.raceNo} RESULTS</h3>${res.length?`<div class="tw"><table><tbody>${res.map((r,i)=>`<tr class="${r.uid===UID?'me':''}"><td>${i+1}</td><td>${chip(r.uid)}</td><td>${nm(r.uid)}</td><td class="r">${fin(r)}</td><td class="r">${r.points}</td></tr>`).join('')}</tbody></table></div>`:'<p class="muted">No results yet. Post the first one.</p>'}</div>
-   <div class="card"><h3>SEASON STANDINGS</h3>${st.length?`<div class="tw"><table><thead><tr><th></th><th></th><th>DRIVER</th><th class="r">WINS</th><th class="r">PTS</th></tr></thead><tbody>${st.map((s,i)=>`<tr class="${s.uid===UID?'me':''}"><td>${i+1}</td><td>${chip(s.uid)}</td><td>${nm(s.uid)}</td><td class="r">${s.wins}</td><td class="r">${s.points}</td></tr>`).join('')}</tbody></table></div>`:'<p class="muted">Standings show up after the first result.</p>'}
+   <div class="card"><h3>RACE ${ev.raceNo} RESULTS</h3>${res.length?`<div class="tw"><table><tbody>${res.map((r,i)=>`<tr class="${r.uid===UID?'me':''}"><td>${i+1}</td><td>${chip(r.uid)}</td><td>${nm(r.uid)}</td><td class="r">${fin(r)}</td><td class="r">${Math.floor(num(r.points,0,99))}</td></tr>`).join('')}</tbody></table></div>`:'<p class="muted">No results yet. Post the first one.</p>'}</div>
+   <div class="card"><h3>SEASON STANDINGS</h3>${st.length?`<div class="tw"><table><thead><tr><th></th><th></th><th>DRIVER</th><th class="r">WINS</th><th class="r">PTS</th></tr></thead><tbody>${st.map((s,i)=>`<tr class="${s.uid===UID?'me':''}"><td>${i+1}</td><td>${chip(s.uid)}</td><td>${nm(s.uid)}</td><td class="r">${Math.floor(num(s.wins,0,9999))}</td><td class="r">${Math.floor(num(s.points,0,1e6))}</td></tr>`).join('')}</tbody></table></div>`:'<p class="muted">Standings show up after the first result.</p>'}
      <p class="muted">${D.members.length} driver${D.members.length===1?'':'s'} in the league. Points: 40 for P1, 35 for P2, 32 for P3, down to 22 for P8.</p></div>`+
    (owner?`<div class="card"><h3>COMMISSIONER</h3><p class="muted">Set the next race. Race ${ev.raceNo} points stay in the standings.</p>
      <div class="row2"><select class="txt" id="nxMode" aria-label="Next event"><option value="short">Short Track</option><option value="dirt">Dirt Track</option><option value="derby">Derby</option></select><select class="txt" id="nxDiff" aria-label="Next field"><option value="rookie">Rookie</option><option value="pro">Pro</option><option value="champ">Champion</option></select></div>
@@ -1187,6 +1191,7 @@ function renderLeagueDetail(){
 }
 function closeSubs(){league.unsub.forEach(u=>{try{u()}catch(e){}});league.unsub=[]}
 function openLeague(code){
+  if(!/^[A-Z0-9]{6}$/.test(code||''))return;
   closeSubs();league.open=code;league.slow=false;league.data={doc:null,members:[],results:[],standings:[]};
   const base='leagues/'+code,tm=setTimeout(()=>{if(league.open===code&&!league.data.doc){league.slow=true;renderLeague()}},10000);
   league.unsub.push(DB.doc(base).onSnapshot(s=>{clearTimeout(tm);league.data.doc=s.exists?s.data():{missing:true};renderLeague()},()=>{clearTimeout(tm);league.data.doc={missing:true};renderLeague()}));
@@ -1212,12 +1217,13 @@ async function joinLeague(){
   await joinWrite(code,s.data().name||'League');openLeague(code);
 }
 function runLeague(){
-  const d=league.data.doc,ev=d.event;league.active={code:d.code,raceNo:ev.raceNo,seed:ev.seed};
+  const ev=cleanEv(league.data.doc.event);league.active={code:league.open,raceNo:ev.raceNo,seed:ev.seed};
   mode=ev.mode;laps=ev.laps;diff=ev.diff;syncSegs();updateMenu();startRace();
 }
 async function nextRace(){
   const d=league.data.doc;
-  await DB.doc('leagues/'+d.code).update({event:{mode:$('nxMode').value,laps:+$('nxLaps').value,diff:$('nxDiff').value,raceNo:(d.event.raceNo||1)+1,seed:1000+Math.floor(Math.random()*90000)}});
+  const nx=cleanEv({mode:$('nxMode').value,laps:+$('nxLaps').value,diff:$('nxDiff').value,raceNo:cleanEv(d.event).raceNo+1,seed:1000+Math.floor(Math.random()*90000)});
+  await DB.doc('leagues/'+league.open).update({event:nx});
 }
 async function submitLeague(pos,p){
   const a=league.active,note=m=>{const el=$('lgPost');if(el)el.textContent=m};
@@ -1253,11 +1259,25 @@ async function initCloud(){
     DB=db;UID=user?await user.id():null;
     if(DB&&UID){profRef=DB.doc('data/users/'+UID+'/profile');
       const snap=await profRef.get();
-      if(snap.exists){P=merge(DEF_P,snap.data());renderHub()}else saveProfile()}
+      if(snap.exists){P=merge(DEF_P,snap.data());cleanP();renderHub()}else saveProfile()}
   }}catch(e){}
   renderLeague();
 }
-renderHub();renderLeague();initCloud();
+function num(v,lo=0,hi=1e12){const n=Number(v);return Number.isFinite(n)?Math.min(hi,Math.max(lo,n)):lo}
+function cleanEv(e){e=e&&typeof e==='object'?e:{};return {mode:MODE_NAME[e.mode]?e.mode:'short',laps:[5,10,25].includes(+e.laps)?+e.laps:10,diff:DIFF_NAME[e.diff]?e.diff:'pro',raceNo:Math.floor(num(e.raceNo,1,9999)),seed:Math.floor(num(e.seed,1,1e6))}}
+function cleanP(){
+  const o=(x)=>x&&typeof x==='object'&&!Array.isArray(x)?x:{};
+  P.name=String(P.name||'').slice(0,16);P.num=String(P.num||'1').replace(/\D/g,'').slice(0,2)||'1';
+  P.col=okCol(P.col);P.trim=okCol(P.trim);P.cash=Math.floor(num(P.cash));P.xp=Math.floor(num(P.xp));
+  const up=o(P.up);P.up={};for(const k of ['engine','tires','armor'])P.up[k]=Math.floor(num(up[k],0,5));
+  const st=o(P.stats);P.stats={};for(const k of Object.keys(DEF_P.stats))P.stats[k]=Math.floor(num(st[k]));
+  const b=o(P.best);P.best={};for(const m of ['short','dirt'])if(b[m])P.best[m]=num(b[m],0,9999);
+  const a=o(P.ach);P.ach={};for(const x of ACH)if(a[x.id])P.ach[x.id]=String(a[x.id]).slice(0,12);
+  const d=o(P.daily),dk=Object.keys(d)[0];P.daily=dk?{[String(dk).slice(0,12)]:String(d[dk]).slice(0,16)}:{};
+  const sk=o(P.streak);P.streak={last:String(sk.last||'').slice(0,12),n:Math.floor(num(sk.n,0,9999))};
+  P.leagues=(Array.isArray(P.leagues)?P.leagues:[]).filter(l=>l&&/^[A-Z0-9]{6}$/.test(l.code)).slice(0,30).map(l=>({code:l.code,name:String(l.name||'League').slice(0,28)}));
+}
+cleanP();renderHub();renderLeague();initCloud();
 
 /* ---------- go ---------- */
 attract();
