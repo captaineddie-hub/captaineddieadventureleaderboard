@@ -44,9 +44,8 @@ button:focus-visible{outline:2px solid var(--caution);outline-offset:3px}
 .flag.yellow i{background:var(--caution)}
 .flag.check i{background:conic-gradient(#fff 25%,#111 0 50%,#fff 0 75%,#111 0) 0 0/8px 6px}
 .spacer{flex:1}
-#mute,#view{pointer-events:auto;width:40px;height:40px;border-radius:10px;border:1px solid var(--line);background:var(--panel);display:grid;place-items:center}
-#view{width:auto;white-space:nowrap;padding:0 10px;font-size:13px;font-weight:700;letter-spacing:.08em}
-#mute svg,#view svg{width:20px;height:20px}
+#mute,#pauseBtn{pointer-events:auto;width:40px;height:40px;border-radius:10px;border:1px solid var(--line);background:var(--panel);display:grid;place-items:center}
+#mute svg,#pauseBtn svg{width:20px;height:20px}
 
 #pylon{position:absolute;top:66px;left:max(16px,env(safe-area-inset-left,0px));list-style:none;margin:0;padding:6px 5px;display:flex;flex-direction:column;gap:2px;background:var(--panel);border:1px solid var(--line);border-radius:8px}
 #pylon li{display:grid;grid-template-columns:14px 30px;align-items:center;gap:4px;font-variant-numeric:tabular-nums}
@@ -200,7 +199,7 @@ td.r,th.r{text-align:right}
         <span class="flag" id="hFlag"><i></i><span>GREEN</span></span>
       </div>
       <div class="spacer"></div>
-      <button id="view" type="button">TOP VIEW</button>
+      <button id="pauseBtn" type="button" aria-label="Pause"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg></button>
       <button id="mute" type="button" aria-label="Mute engine sound"></button>
     </div>
     <ol id="pylon" aria-label="Running order"></ol>
@@ -228,6 +227,20 @@ td.r,th.r{text-align:right}
   </div>
 
   <div id="count" hidden><div class="lights"><i></i><i></i><i></i></div></div>
+
+  <div class="sheet" id="pauseSheet" hidden>
+    <div class="inner">
+      <div><p class="eyebrow">RED FLAG</p><h1>Paused</h1></div>
+      <button class="go" id="resumeBtn" type="button">Resume</button>
+      <div class="card"><h3>STEERING</h3>
+        <div class="seg" id="pauseSteer"><button type="button" data-ps="wheel">Wheel</button><button type="button" data-ps="tilt">Tilt phone</button><button type="button" data-ps="buttons">Buttons</button></div>
+        <p class="muted" id="tiltHelp">Hold the phone like a steering wheel and turn it. If the car drifts, hold the phone straight and tap Recenter. If left and right are backwards, tap Flip.</p>
+        <div class="row2" id="tiltBtns"><button class="ghost" id="recenterBtn" type="button">Recenter</button><button class="ghost" id="flipBtn" type="button">Flip left/right</button></div>
+      </div>
+      <div class="row2"><button class="ghost" id="view" type="button">TOP VIEW</button><button class="ghost" id="restartBtn" type="button">Restart race</button></div>
+      <button class="ghost" id="quitBtn" type="button">Quit to menu</button>
+    </div>
+  </div>
 
   <div class="sheet" id="menu">
     <div class="inner">
@@ -909,21 +922,25 @@ function setWheel(v){steerA=v;whSvg.style.transform=v?`rotate(${v*100}deg)`:'';w
 wh.addEventListener('pointerdown',e=>{e.preventDefault();wid=e.pointerId;wx=e.clientX;try{wh.setPointerCapture(e.pointerId)}catch(_){}});
 wh.addEventListener('pointermove',e=>{if(e.pointerId!==wid)return;setWheel(clamp((e.clientX-wx)/55,-1,1))});
 ['pointerup','pointercancel','lostpointercapture'].forEach(t=>wh.addEventListener(t,e=>{if(e.pointerId!==wid)return;wid=null;setWheel(0)}));
+let tiltOff=null,tiltFlip=store.get('flip','0')==='1',tiltOn=false;
 function onTilt(e){
-  if(steerMode!=='tilt')return;
-  const ang=(screen.orientation&&screen.orientation.angle)||window.orientation||0;
-  let v=ang===90?e.beta:(ang===-90||ang===270)?-e.beta:e.gamma;
-  if(v==null)return; tiltOK=true;
-  const d=Math.abs(v)<3?0:v-Math.sign(v)*3; steerA=clamp(d/22,-1,1);
+  if(steerMode!=='tilt'||state==='paused')return;
+  const g=e.accelerationIncludingGravity;if(!g||g.x==null||g.y==null)return;tiltOK=true;
+  const o=screen.orientation&&typeof screen.orientation.angle==='number'?screen.orientation.angle:(window.orientation||0);
+  let s=o===90?g.y:(o===-90||o===270)?-g.y:-g.x;s=clamp(s/9.81,-1,1);if(tiltFlip)s=-s;
+  if(tiltOff===null)tiltOff=s;
+  const d=Math.asin(clamp(s-tiltOff,-1,1))*180/PI,dz=Math.abs(d)<3?0:d-Math.sign(d)*3;
+  steerA=clamp(dz/22,-1,1);
 }
-function tiltFail(){if(steerMode!=='tilt'||state==='menu')return;steerMode='wheel';applySteer();say("Tilt isn't available here. Use the wheel.",2)}
+function tiltFail(){if(steerMode!=='tilt'||state==='menu')return;steerMode='wheel';store.set('steer','wheel');applySteer();syncSegs();syncPauseSteer();
+  $('tiltHelp').hidden=false;$('tiltHelp').textContent="Tilt isn't available in this browser, so you're on the wheel. Try opening the link in Safari or Chrome.";say("Tilt isn't available here. Use the wheel.",2)}
 function applySteer(){
   $('wheel').hidden=steerMode!=='wheel';$('bL').hidden=$('bR').hidden=steerMode!=='buttons';
   setWheel(0);
   if(steerMode!=='tilt')return;
-  tiltOK=false;
-  const go=()=>{addEventListener('deviceorientation',onTilt);setTimeout(()=>{if(!tiltOK)tiltFail()},1800)};
-  try{const DOE=window.DeviceOrientationEvent;
+  tiltOK=false;tiltOff=null;
+  const go=()=>{if(!tiltOn){addEventListener('devicemotion',onTilt);tiltOn=true}setTimeout(()=>{if(!tiltOK)tiltFail()},2500)};
+  try{const DOE=window.DeviceMotionEvent;
     if(!DOE)return tiltFail();
     if(typeof DOE.requestPermission==='function')DOE.requestPermission().then(r=>r==='granted'?go():tiltFail()).catch(tiltFail);
     else go();
@@ -936,6 +953,22 @@ function bind(id,key){
 }
 bind('bL','left');bind('bR','right');bind('bGas','gas');bind('bBrake','brake');
 const KEYS={ArrowLeft:'left',KeyA:'left',ArrowRight:'right',KeyD:'right',ArrowUp:'gas',KeyW:'gas',ArrowDown:'brake',KeyS:'brake',Space:'brake'};
+/* pause / restart */
+let pausedFrom=null;
+function syncPauseSteer(){document.querySelectorAll('#pauseSteer button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.ps===steerMode));$('tiltBtns').hidden=steerMode!=='tilt';$('flipBtn').textContent=tiltFlip?'Flip back':'Flip left/right'}
+function pauseGame(){if(!['race','countdown','finish'].includes(state))return;pausedFrom=state;state='paused';for(const k in inp)inp[k]=false;setWheel(0);
+  $('tiltHelp').textContent='Hold the phone like a steering wheel and turn it. If the car drifts, hold the phone straight and tap Recenter. If left and right are backwards, tap Flip.';$('tiltHelp').hidden=steerMode!=='tilt';
+  syncPauseSteer();$('pauseSheet').hidden=false;$('controls').hidden=true;try{window.speechSynthesis&&speechSynthesis.cancel()}catch(e){}}
+function resumeGame(){if(state!=='paused')return;state=pausedFrom;$('pauseSheet').hidden=true;$('controls').hidden=false;tiltOff=null}
+$('pauseBtn').addEventListener('click',pauseGame);
+$('resumeBtn').addEventListener('click',resumeGame);
+$('restartBtn').addEventListener('click',()=>{$('pauseSheet').hidden=true;startRace()});
+$('quitBtn').addEventListener('click',()=>{$('pauseSheet').hidden=true;$('count').hidden=true;attract()});
+$('recenterBtn').addEventListener('click',()=>{tiltOff=null;$('recenterBtn').textContent='Centered';setTimeout(()=>{$('recenterBtn').textContent='Recenter'},1200)});
+$('flipBtn').addEventListener('click',()=>{tiltFlip=!tiltFlip;store.set('flip',tiltFlip?'1':'0');tiltOff=null;syncPauseSteer()});
+$('pauseSteer').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;steerMode=b.dataset.ps;store.set('steer',steerMode);syncSegs();syncPauseSteer();$('tiltHelp').hidden=steerMode!=='tilt';applySteer()});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)pauseGame()});
+addEventListener('keydown',e=>{if(e.code==='Escape'||e.code==='KeyP'){state==='paused'?resumeGame():pauseGame();return}});
 addEventListener('keydown',e=>{const k=KEYS[e.code];if(k&&state!=='menu'&&state!=='done'){inp[k]=true;e.preventDefault()}});
 addEventListener('keyup',e=>{const k=KEYS[e.code];if(k)inp[k]=false});
 $('app').addEventListener('contextmenu',e=>e.preventDefault());
@@ -981,6 +1014,7 @@ function engine(dt){
 let side=0,spotLap=-2,lastPos=0,scrapeT=0,drZ=1,spotT=0,streaks=[],confettiP=[];
 const calm=matchMedia('(prefers-reduced-motion: reduce)').matches;
 function say(text,prio){
+  if(state==='paused')return;
   $('spotTxt').textContent=text;const el=$('spot');el.classList.add('show');el.classList.toggle('hi',prio>0);
   clearTimeout(spotT);spotT=setTimeout(()=>el.classList.remove('show'),1700);
   try{const ss=window.speechSynthesis;if(muted||!ss)return;
