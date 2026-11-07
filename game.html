@@ -157,6 +157,8 @@ select.txt option{background:#141826;color:var(--ink)}
 .mini{align-self:flex-start;border:1px solid var(--line);background:transparent;border-radius:9px;padding:8px 12px;font-size:14px;font-weight:700;letter-spacing:.06em}
 .tw{overflow-x:auto}
 .seg button:disabled{opacity:.4;cursor:default;font-size:14px}
+.linkbtn{border:0;background:none;padding:0;font:inherit;color:var(--ink);text-decoration:underline;text-underline-offset:3px}
+.muted a{color:var(--ink)}
 .eyebrow{font-size:13px;font-weight:700;letter-spacing:.24em;color:var(--caution);margin:0}
 h1{font-family:var(--display);font-weight:400;font-size:clamp(40px,13vw,58px);line-height:.92;margin:4px 0 0;text-wrap:balance}
 h1 em{font-style:normal;color:var(--caution);display:block}
@@ -257,6 +259,7 @@ td.r,th.r{text-align:right}
       <p class="keys" id="mKeys"></p>
       </section>
       <section class="panel" id="tab-garage" hidden>
+        <div class="card" id="acctCard" hidden></div>
         <canvas id="gPrev" width="480" height="190" style="width:100%;max-width:340px;height:auto;align-self:center" aria-label="Your car"></canvas>
         <div class="row2"><div class="field"><label for="gName">DRIVER NAME</label><input class="txt" id="gName" maxlength="16" placeholder="Your name" autocomplete="off"></div><div class="field"><label for="gNum">CAR NUMBER</label><input class="txt" id="gNum" inputmode="numeric" maxlength="2" autocomplete="off"></div></div>
         <div class="field"><span>PAINT</span><div class="swatches" id="gPaint"></div></div>
@@ -326,7 +329,16 @@ td.r,th.r{text-align:right}
   }
   var userX={id:async function(){return devId()},me:async function(){return {id:devId(),name:'',email:null,isOwner:false,canEdit:false,avatarUrl:'',color:'#888'}},
     isOwner:async function(){return false},canEdit:async function(){return false},can:async function(){return null},profiles:async function(){return {}}};
-  window.claude={standalone:true,use:async function(n){var sb=await ready;if(!sb)return null;if(n==='db')return makeDB(sb);if(n==='user')return userX;return null}};
+  var RD=location.origin+'/game.html';
+  var account={
+    info:async function(){var sb=await ready;if(!sb)return null;var u=(await sb.auth.getUser()).data.user;return u?{guest:!!u.is_anonymous,email:u.email||'',provider:(u.app_metadata&&u.app_metadata.provider)||''}:null},
+    saveEmail:async function(email){var sb=await ready;var r=await sb.auth.updateUser({email:email},{emailRedirectTo:RD});if(r.error)throw r.error},
+    saveGoogle:async function(){var sb=await ready;var r=await sb.auth.linkIdentity({provider:'google',options:{redirectTo:RD}});if(r.error)throw r.error},
+    signInEmail:async function(email){var sb=await ready;var r=await sb.auth.signInWithOtp({email:email,options:{shouldCreateUser:false,emailRedirectTo:RD}});if(r.error)throw r.error},
+    signInGoogle:async function(){var sb=await ready;var r=await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:RD}});if(r.error)throw r.error},
+    signOut:async function(){var sb=await ready;try{await sb.auth.signOut()}catch(e){}try{localStorage.removeItem('sts-profile')}catch(e){}location.replace(RD)}
+  };
+  window.claude={standalone:true,account:account,use:async function(n){var sb=await ready;if(!sb)return null;if(n==='db')return makeDB(sb);if(n==='user')return userX;return null}};
 })();
 
 </script>
@@ -1094,7 +1106,7 @@ function finishCareer(pos){
 let tab='race';
 function showTab(t){tab=t;for(const s of ['race','garage','league','career'])$('tab-'+s).hidden=s!==t;
   document.querySelectorAll('.tabs button').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===t));
-  if(t==='garage')renderGarage();if(t==='career')renderCareer();if(t==='league')renderLeague()}
+  if(t==='garage'){renderGarage();renderAcct()}if(t==='career')renderCareer();if(t==='league')renderLeague()}
 document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',()=>showTab(b.dataset.tab)));
 function syncSegs(){document.querySelectorAll('.seg').forEach(seg=>{const cur={mode,laps:String(laps),diff,steer:steerMode}[seg.dataset.opt];seg.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===cur))})}
 function renderHub(){
@@ -1277,6 +1289,37 @@ function cleanP(){
   const sk=o(P.streak);P.streak={last:String(sk.last||'').slice(0,12),n:Math.floor(num(sk.n,0,9999))};
   P.leagues=(Array.isArray(P.leagues)?P.leagues:[]).filter(l=>l&&/^[A-Z0-9]{6}$/.test(l.code)).slice(0,30).map(l=>({code:l.code,name:String(l.name||'League').slice(0,28)}));
 }
+/* optional account (only where the host provides one) */
+let acctMode='save';
+async function renderAcct(){
+  const A=window.claude&&window.claude.account,el=$('acctCard');if(!A){el.hidden=true;return}
+  let info=null;try{info=await A.info()}catch(e){}
+  if(!info){el.hidden=true;return}el.hidden=false;
+  if(!info.guest){el.innerHTML=`<h3>ACCOUNT</h3><div class="big">Career saved</div><p class="muted">Signed in${info.email?' as <b>'+esc(info.email)+'</b>':' with Google'}. Your cash, upgrades and leagues follow you to any phone.</p><button class="mini" type="button" data-acct="out">Sign out</button>`;return}
+  const si=acctMode==='in';
+  el.innerHTML=`<h3>${si?'SIGN IN':'SAVE YOUR CAREER'}</h3><p class="muted">${si?'Sign in to load your saved career. The guest progress on this phone will be replaced.':"You're playing as a guest. Save your career to keep your cash, upgrades and leagues on any phone, and never lose them."}</p>
+    <button class="ghost" type="button" data-acct="google">Continue with Google</button>
+    <div class="field"><label for="acEmail">OR USE EMAIL</label><input class="txt" id="acEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com"></div>
+    <button class="ghost" type="button" data-acct="email">Email me a sign-in link</button>
+    <p class="muted" id="acMsg" role="status"></p>
+    <p class="muted"><button class="linkbtn" type="button" data-acct="toggle">${si?'New here? Save this career instead':'Already saved a career? Sign in'}</button> · <a href="/privacy.html" target="_blank" rel="noopener">Privacy</a></p>`;
+}
+$('acctCard').addEventListener('click',async e=>{
+  const b=e.target.closest('button');if(!b)return;const A=window.claude&&window.claude.account;if(!A)return;
+  const act=b.dataset.acct,msg=t=>{const m=$('acMsg');if(m)m.textContent=t};
+  try{
+    if(act==='toggle'){acctMode=acctMode==='in'?'save':'in';renderAcct();return}
+    if(act==='out'){b.disabled=true;await A.signOut();return}
+    if(act==='google'){b.disabled=true;msg('Opening Google…');await(acctMode==='in'?A.signInGoogle():A.saveGoogle());return}
+    if(act==='email'){const em=($('acEmail').value||'').trim();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)){msg('Enter a valid email address.');return}
+      b.disabled=true;await(acctMode==='in'?A.signInEmail(em):A.saveEmail(em));
+      msg('Check your email for the link and open it on this phone, in this same browser, to finish.');b.disabled=false}
+  }catch(err){b.disabled=false;const m=String(err&&err.message||'');
+    msg(/already|exists|registered|linked/i.test(m)?'That account already has a saved career. Tap "Already saved a career? Sign in" to load it.'
+      :/signups not allowed|not found|no user/i.test(m)?'No saved career for that email yet. Save this career instead.'
+      :/rate|limit|too many/i.test(m)?'Too many sign-in emails right now. Try again later, or use Google.'
+      :"That didn't work. Check your connection and try again.")}
+});
 cleanP();renderHub();renderLeague();initCloud();
 
 /* ---------- go ---------- */
