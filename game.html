@@ -184,6 +184,25 @@ td.n span{font-family:var(--display);font-size:13px;display:inline-block;min-wid
 tr.me td{background:rgba(255,138,31,.12)}
 td.r,th.r{text-align:right}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (orientation:landscape) and (max-height:520px){
+  .topbar{top:8px}
+  .pos b{font-size:30px}
+  #pylon{top:54px;padding:4px}
+  #pylon li span{line-height:15px;font-size:12px}
+  #pylon li{gap:3px}
+  #mm{top:54px;left:auto;right:max(16px,env(safe-area-inset-right,0px))}
+  #lapflash{top:54px;margin-top:var(--mapH,70px)}
+  #mirrorBox{top:8px;height:40px;width:min(170px,calc(100% - 420px))}
+  #spot{top:56px}
+  .dash{bottom:12px}
+  .dash .spd{font-size:34px}
+  #controls{bottom:10px}
+  #wheel{width:112px;height:112px}
+  .btn{width:64px;height:64px}
+  #bBrake{width:60px;height:60px}
+  #bGas{width:76px;height:76px}
+  .sheet{padding-block:12px}
+}
 @media (prefers-reduced-motion:reduce){.btn{transition:none}}
 </style>
 
@@ -237,7 +256,7 @@ td.r,th.r{text-align:right}
       <button class="go" id="resumeBtn" type="button">Resume</button>
       <div class="card"><h3>STEERING</h3>
         <div class="seg" id="pauseSteer"><button type="button" data-ps="wheel">Wheel</button><button type="button" data-ps="tilt">Tilt phone</button><button type="button" data-ps="buttons">Buttons</button></div>
-        <p class="muted" id="tiltHelp">Hold the phone like a steering wheel and turn it. If the car drifts, hold the phone straight and tap Recenter. If left and right are backwards, tap Flip.</p>
+        <p class="muted" id="tiltHelp">Hold the phone sideways like a steering wheel and turn it. Straight is however you hold it when the race starts; if the car drifts, hold it straight and tap Recenter. If left and right are backwards, tap Flip.</p>
         <div class="row2" id="tiltBtns"><button class="ghost" id="recenterBtn" type="button">Recenter</button><button class="ghost" id="flipBtn" type="button">Flip left/right</button></div>
       </div>
       <div class="row2"><button class="ghost" id="view" type="button">TOP VIEW</button><button class="ghost" id="restartBtn" type="button">Restart race</button></div>
@@ -936,11 +955,15 @@ let tiltOff=null,tiltFlip=store.get('flip','0')==='1',tiltOn=false;
 function onTilt(e){
   if(steerMode!=='tilt'||state==='paused')return;
   const g=e.accelerationIncludingGravity;if(!g||g.x==null||g.y==null)return;tiltOK=true;
-  const o=screen.orientation&&typeof screen.orientation.angle==='number'?screen.orientation.angle:(window.orientation||0);
-  let s=o===90?g.y:(o===-90||o===270)?-g.y:-g.x;s=clamp(s/9.81,-1,1);if(tiltFlip)s=-s;
-  if(tiltOff===null)tiltOff=s;
-  const d=Math.asin(clamp(s-tiltOff,-1,1))*180/PI,dz=Math.abs(d)<3?0:d-Math.sign(d)*3;
-  steerA=clamp(dz/22,-1,1);
+  // Steering = how far the phone is turned like a wheel, measured from gravity in the screen's own plane.
+  // Works held upright or sideways, with or without rotation lock, on iPhone and Android.
+  if(Math.hypot(g.x,g.y)<2.5)return;
+  const a=Math.atan2(g.y,g.x);
+  if(tiltOff===null)tiltOff=a;
+  let d=a-tiltOff;while(d>PI)d-=2*PI;while(d<-PI)d+=2*PI;
+  d=d*180/PI;if(tiltFlip)d=-d;
+  const dz=Math.abs(d)<2.5?0:d-Math.sign(d)*2.5,target=clamp(dz/24,-1,1);
+  steerA+=(target-steerA)*.45;
 }
 function tiltFail(){if(steerMode!=='tilt'||state==='menu')return;steerMode='wheel';store.set('steer','wheel');applySteer();syncSegs();syncPauseSteer();
   $('tiltHelp').hidden=false;$('tiltHelp').textContent="Tilt isn't available in this browser, so you're on the wheel. Try opening the link in Safari or Chrome.";say("Tilt isn't available here. Use the wheel.",2)}
@@ -967,7 +990,7 @@ const KEYS={ArrowLeft:'left',KeyA:'left',ArrowRight:'right',KeyD:'right',ArrowUp
 let pausedFrom=null;
 function syncPauseSteer(){document.querySelectorAll('#pauseSteer button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.ps===steerMode));$('tiltBtns').hidden=steerMode!=='tilt';$('flipBtn').textContent=tiltFlip?'Flip back':'Flip left/right'}
 function pauseGame(){if(!['race','countdown','finish'].includes(state))return;pausedFrom=state;state='paused';for(const k in inp)inp[k]=false;setWheel(0);
-  $('tiltHelp').textContent='Hold the phone like a steering wheel and turn it. If the car drifts, hold the phone straight and tap Recenter. If left and right are backwards, tap Flip.';$('tiltHelp').hidden=steerMode!=='tilt';
+  $('tiltHelp').textContent='Hold the phone sideways like a steering wheel and turn it. Straight is however you hold it when the race starts; if the car drifts, hold it straight and tap Recenter. If left and right are backwards, tap Flip.';$('tiltHelp').hidden=steerMode!=='tilt';
   syncPauseSteer();$('pauseSheet').hidden=false;$('controls').hidden=true;try{window.speechSynthesis&&speechSynthesis.cancel()}catch(e){}}
 function resumeGame(){if(state!=='paused')return;state=pausedFrom;$('pauseSheet').hidden=true;$('controls').hidden=false;tiltOff=null}
 $('pauseBtn').addEventListener('click',pauseGame);
