@@ -89,6 +89,9 @@ button:focus-visible{outline:2px solid var(--caution);outline-offset:3px}
 #bBrake.on{background:rgba(255,75,62,.42)}
 #bGas{border-color:rgba(47,210,122,.8);background:rgba(47,210,122,.14);width:90px;height:90px}
 #bGas.on{background:rgba(47,210,122,.42)}
+#bNitro{border-color:rgba(80,170,255,.85);background:rgba(80,170,255,.15);width:66px;height:66px;font-size:12px;line-height:1.1}
+#bNitro:disabled{opacity:.35}
+#bNitro.on{background:rgba(80,170,255,.5)}
 
 /* Countdown */
 #count{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
@@ -244,6 +247,7 @@ td.r,th.r{text-align:right}
     </div>
     <div class="pad">
       <button class="btn" id="bBrake" type="button">BRAKE</button>
+      <button class="btn" id="bNitro" type="button" hidden>NITRO</button>
       <button class="btn" id="bGas" type="button">GAS</button>
     </div>
   </div>
@@ -538,7 +542,11 @@ function makeCar(def,i,isPlayer){
     pref:prefs[(rand()*prefs.length)|0],laneT:off,passSide:0,s:wrapS(s),off,prog:sDiff(wrapS(s),SLINE),prevS:wrapS(s),
     maxIdx:-1,lapStart:0,last:null,best:null,finished:false,finishTime:0,draft:false,wallCD:0,scrub:0,slip:0};
   if(mode==='derby'){const a=i/8*2*PI+.3;car.x=Math.cos(a)*(AX-70);car.y=Math.sin(a)*(AY-60);car.h=a+PI;
-    car.vmax=isPlayer?300*(1+.012*(P.up.engine||0)):(diff==='rookie'?250:diff==='champ'?295:280)+rand()*15;car.hp=100;car.hits=0;car.lastHit={};car.idx=i;car.aiT=0;car.backoff=0;car.stuckT=0;car.dead=false}
+    car.vmax=isPlayer?300*(1+.012*(P.up.engine||0)):(diff==='rookie'?250:diff==='champ'?295:280)+rand()*15;car.hp=100;car.hits=0;car.lastHit={};car.idx=i;car.aiT=0;car.backoff=0;car.stuckT=0;car.dead=false;car.boostT=0;
+    const ai=n=>Math.floor(rand()*(n+1)),lim=diff==='champ'?4:diff==='pro'?2:0;
+    if(isPlayer){car.ram=P.up.ram||0;car.cage=P.up.armor||0;car.chassis=P.up.chassis||0;car.nitro=P.up.nitro||0}
+    else{car.ram=ai(lim);car.cage=ai(lim);car.chassis=ai(lim);car.nitro=diff==='champ'?1:0}
+    car.mass=1+.15*car.chassis;car.vmax*=1-.02*car.chassis}
   return car;
 }
 function grid(withPlayer){
@@ -678,24 +686,33 @@ function track(c){
 const ranking=()=>mode==='derby'?cars.slice().sort((a,b)=>((a.dead?1:0)-(b.dead?1:0))||(a.dead?b.deadT-a.deadT:b.hp-a.hp)):cars.slice().sort((a,b)=>(a.finished&&b.finished)?a.finishTime-b.finishTime:a.finished?-1:b.finished?1:b.prog-a.prog);
 
 /* ---------- demolition derby ---------- */
+let debrisP=[];
+function debris(c,x,y,amt){if(debrisP.length>140)return;const n=Math.min(6,1+Math.floor(amt/6));
+  for(let i=0;i<n;i++)debrisP.push({x,y,z:4+rand()*6,vx:(rand()-.5)*160,vy:(rand()-.5)*160,vz:60+rand()*120,r:rand()*6,vr:(rand()-.5)*14,s:.12+rand()*.22,col:i%3?c.col:'#2a2c31',life:4+rand()*3})}
+function stepDebris(dt){for(const d of debrisP){if(d.z>0||Math.abs(d.vz)>5){d.vz-=420*dt;d.z+=d.vz*dt;if(d.z<0){d.z=0;d.vz*=-.3;d.vx*=.5;d.vy*=.5;d.vr*=.5}}d.x+=d.vx*dt;d.y+=d.vy*dt;d.vx*=Math.pow(.4,dt);d.vy*=Math.pow(.4,dt);d.r+=d.vr*dt;d.life-=dt}
+  debrisP=debrisP.filter(d=>d.life>0)}
+function paintNitro(){const b=$('bNitro');if(!b||!player)return;const n=player.nitro||0;b.innerHTML='NITRO<br>'+n;b.disabled=n<=0||!!player.dead}
+function fireNitro(){if(mode!=='derby'||!player||player.dead||state!=='race'||!(player.nitro>0)||player.boostT>0)return;player.nitro--;player.boostT=1.3;say('Nitro!',0);paintNitro()}
 const DERBY_T=150;let simT=0;
 function physDerby(c,dt){
-  const vm=c.vmax*(.55+.45*Math.max(0,c.hp)/100);let acc;
+  if(c.boostT>0)c.boostT-=dt;const bst=c.boostT>0;
+  const vm=c.vmax*(.55+.45*Math.max(0,c.hp)/100)*(bst?1.6:1);let acc;
   if(c.dead)acc=-c.v*2.5;
-  else if(c.gas&&!c.brake)acc=c.v<0?600:340*(1-c.v/vm);
+  else if(c.gas&&!c.brake||bst)acc=c.v<0?600:(bst?700:340)*(1-c.v/vm);
   else if(c.brake)acc=c.v>8?-900:-430*(1+c.v/230);
   else acc=-c.v*1.3;
   c.v=clamp(c.v+acc*dt,-230,vm);
   const w=c.dead?0:c.steer*2.9*clamp(Math.abs(c.v)/60,(c.gas||c.brake)?.4:0,1)*(c.v<-2||(c.brake&&c.v<=8)?-1:1);
   c.h+=w*dt;c.scrub=0;
   c.x+=Math.cos(c.h)*c.v*dt;c.y+=Math.sin(c.h)*c.v*dt;
+  if(bst&&rand()<.7)sparks.push({x:c.x-Math.cos(c.h)*17,y:c.y-Math.sin(c.h)*17,vx:-Math.cos(c.h)*90,vy:-Math.sin(c.h)*90,life:.35,smoke:1,fire:1});
   const wall=(nx,ny)=>{const vn=(Math.cos(c.h)*nx+Math.sin(c.h)*ny)*c.v;if(vn>0){if(vn>60){dmg(c,vn*.035,null);for(let k=0;k<6;k++)sparks.push({x:c.x+nx*14,y:c.y+ny*14,vx:(rand()-.5)*160,vy:(rand()-.5)*160,life:.4});if(c===focus)shake=Math.min(9,shake+vn/40);if(c.isPlayer)scrapeT=.25}c.v*=.3}};
   const lx=AX-15,ly=AY-15;
   if(c.x>lx){c.x=lx;wall(1,0)}else if(c.x<-lx){c.x=-lx;wall(-1,0)}
   if(c.y>ly){c.y=ly;wall(0,1)}else if(c.y<-ly){c.y=-ly;wall(0,-1)}
 }
 function dmg(c,amt,by){
-  if(c.dead)return;if(c.isPlayer)amt*=1-.08*(P.up.armor||0);c.hp-=amt;if(by&&amt>4)by.hits++;
+  if(c.dead)return;amt*=1-.08*(c.cage||0);c.hp-=amt;if(by&&amt>4)by.hits++;if(by&&by.isPlayer&&state==='race'){RS.dealt+=amt;if(amt>=8)RS.big++}
   if(c.hp<=0){c.dead=true;c.deadT=simT;c.hp=0;if(by&&by.isPlayer&&state==='race')RS.kills++;
     if(state==='race'){const left=cars.filter(o=>!o.dead).length;
       if(c.isPlayer)say("You're done. Wrecked out.",2);
@@ -720,10 +737,14 @@ function collideDerby(){
     if(closing<=25||simT-(a.lastHit[key]||-9)<.35)continue;
     a.lastHit[key]=simT;
     const frontA=-(hax*hit.nx+hay*hit.ny),frontB=hbx*hit.nx+hby*hit.ny;
-    const mul=f=>f>.5?1.6:f<-.5?.45:1,base=closing*.055,dA=base*mul(frontA),dB=base*mul(frontB);
+    const mul=f=>f>.5?1.6:f<-.5?.45:1,base=closing*.055;
+    const ramIn=(c,f)=>f>.5?1-.1*(c.ram||0):1,ramOut=(c,f)=>(f>.5?1+.15*(c.ram||0):1)*(c.boostT>0?1.4:1)*(.85+.15*(c.mass||1));
+    const dA=base*mul(frontA)*ramIn(a,frontA)*ramOut(b,frontB),dB=base*mul(frontB)*ramIn(b,frontB)*ramOut(a,frontA);
     dmg(a,dA,b);dmg(b,dB,a);
-    const na=a.v*.35+(vbx*hax+vby*hay)*.45,nb=b.v*.35+(vax*hbx+vay*hby)*.45;a.v=na;b.v=nb;
-    a.h-=(hax*hit.ny-hay*hit.nx)*closing*.004;b.h+=(hbx*hit.ny-hby*hit.nx)*closing*.004;
+    const mA=a.mass||1,mB=b.mass||1,kA=Math.min(1.8,mB/mA),kB=Math.min(1.8,mA/mB);
+    const na=a.v*.35+(vbx*hax+vby*hay)*.45*kA,nb=b.v*.35+(vax*hbx+vay*hby)*.45*kB;a.v=na;b.v=nb;
+    a.h-=(hax*hit.ny-hay*hit.nx)*closing*.004/mA;b.h+=(hbx*hit.ny-hby*hit.nx)*closing*.004/mB;
+    if(dA>5)debris(a,(a.x+b.x)/2,(a.y+b.y)/2,dA);if(dB>5)debris(b,(a.x+b.x)/2,(a.y+b.y)/2,dB);
     for(let k=0;k<10;k++)sparks.push({x:(a.x+b.x)/2,y:(a.y+b.y)/2,vx:(rand()-.5)*220,vy:(rand()-.5)*220,life:.35+rand()*.3});
     if(a===focus||b===focus)shake=Math.min(12,shake+closing/30);
     if((a===player||b===player)&&state==='race'){scrapeT=.3;
@@ -748,11 +769,12 @@ function aiDerby(c,dt){
     const d=angDiff(ang,c.h+PI);c.steer=clamp(-d*2.2,-1,1);c.brake=true;c.gas=false;
     if(Math.abs(d)>1.6&&dist>90){c.brake=false;c.gas=true;c.steer=clamp(angDiff(ang+PI,c.h)*2.2,-1,1)}
   }else{
-    const d=angDiff(ang,c.h);c.steer=clamp(d*2.6,-1,1);
+    const d=angDiff(ang,c.h);c.steer=clamp(d*2.6,-1,1);if(c.nitro>0&&c.boostT<=0&&Math.abs(d)<.2&&dist<220&&dist>90){c.nitro--;c.boostT=1.1}
     if(Math.abs(d)>2.3&&dist<130){c.gas=false;c.brake=true;c.steer=-c.steer}else{c.gas=true;c.brake=false}
   }
 }
 function derbyRules(){
+  for(const c of cars)if(c.dead&&rand()<.5)sparks.push({x:c.x+Math.cos(c.h)*10+(rand()-.5)*8,y:c.y+Math.sin(c.h)*10+(rand()-.5)*8,vx:(rand()-.5)*12,vy:(rand()-.5)*12,life:.7,smoke:1,fire:1});
   for(const c of cars)if(c.hp<60&&rand()<(c.dead?.45:.22))sparks.push({x:c.x+Math.cos(c.h)*12,y:c.y+Math.sin(c.h)*12,vx:(rand()-.5)*20,vy:(rand()-.5)*20,life:1,smoke:1,dark:c.hp<30?1:0});
   const alive=cars.filter(c=>!c.dead);
   if(state==='menu'){if(alive.length<=1)grid(false);return}
@@ -775,7 +797,7 @@ function step(dt){
     drafts();
     const sub=3,h=dt/sub;
     for(let k=0;k<sub;k++){for(const c of cars)physics(c,h);collide()}
-    if(mode!=='derby')for(const c of cars)track(c);else derbyRules();
+    if(mode!=='derby')for(const c of cars)track(c);else{derbyRules();stepDebris(dt)}
     if(state==='race'&&player&&player.finished){state='finish';doneT=0}
     if(state==='finish'){doneT+=dt;if(doneT>(mode==='derby'?3.5:8)||(mode!=='derby'&&cars.every(c=>c.finished)))showResults()}
     if(state==='menu'){focusT+=dt;if(focusT>9){focusT=0;focus=cars[(Math.random()*cars.length)|0]}}
@@ -863,7 +885,7 @@ function hud(dt){
     const fl=$('hFlag');fl.className=state==='finish'?'flag check':'flag yellow';fl.lastChild.textContent=alive+' LEFT';
     $('hSpd').textContent=Math.round(Math.abs(player.v)*.15);
     const hp=Math.max(0,Math.round(player.hp));
-    $('chips').innerHTML=player.dead?'<span class="chip warn">WRECKED</span>':`<span class="chip${hp<35?' warn':''}">ARMOR ${hp}%</span>`+(player.camRev?'<span class="chip">REAR CAM</span>':'');
+    $('chips').innerHTML=player.dead?'<span class="chip warn">WRECKED</span>':`<span class="chip${hp<35?' warn':''}">ARMOR ${hp}%</span>`+(player.boostT>0?'<span class="chip">NITRO</span>':'')+(player.camRev?'<span class="chip">REAR CAM</span>':'');
     $('pylon').className='derby';
     $('pylon').innerHTML=rk.map((c,i)=>`<li class="${c===player?'me':''}${c.dead?' dead':''}"><b>${i+1}</b><span style="--c:${c.col};--t:${c.t}">${c.num}</span><em style="--hp:${Math.max(0,c.hp)}%;--hc:${c.hp<35?'var(--red)':c.hp<65?'var(--caution)':'var(--green)'}"></em></li>`).join('');
     $('lapflash').innerHTML='';return;
@@ -912,11 +934,13 @@ function showResults(){
 function attract(){grid(false);state='menu';focusT=0;$('menu').hidden=false;$('results').hidden=true;$('hud').hidden=true;$('controls').hidden=true}
 function startRace(){
   audioStart();
-  RS={walls:0,passes:0,kills:0};
+  RS={walls:0,passes:0,kills:0,dealt:0,big:0};
+  debrisP=[];
   grid(true); state='countdown'; countT=3.2; lastPos=0; side=0; spotLap=-2; confettiP=[];
   $('menu').hidden=true;$('results').hidden=true;$('hud').hidden=false;$('controls').hidden=false;$('count').hidden=false;
   lapFlashT=0; $('lapflash').innerHTML=''; applySteer();
   $('bBrake').textContent=mode==='derby'?'REV':'BRAKE';
+  $('bNitro').hidden=mode!=='derby'||!(P.up.nitro>0);paintNitro();
   try{navigator.wakeLock&&navigator.wakeLock.request('screen').catch(()=>{})}catch(e){}
 }
 const store={get(k,d){try{const v=localStorage.getItem('sts-'+k);return v==null?d:v}catch(e){return d}},set(k,v){try{localStorage.setItem('sts-'+k,v)}catch(e){}}};
@@ -984,7 +1008,9 @@ function bind(id,key){
   el.addEventListener('pointerdown',e=>{e.preventDefault();try{el.setPointerCapture(e.pointerId)}catch(_){};inp[key]=true;el.classList.add('on')});
   ['pointerup','pointercancel','lostpointercapture'].forEach(t=>el.addEventListener(t,()=>{inp[key]=false;el.classList.remove('on')}));
 }
+$('bNitro').addEventListener('pointerdown',e=>{e.preventDefault();fireNitro();$('bNitro').classList.add('on');setTimeout(()=>$('bNitro').classList.remove('on'),250)});
 bind('bL','left');bind('bR','right');bind('bGas','gas');bind('bBrake','brake');
+addEventListener('keydown',e=>{if((e.code==='ShiftLeft'||e.code==='ShiftRight'||e.code==='KeyN')&&state==='race')fireNitro()});
 const KEYS={ArrowLeft:'left',KeyA:'left',ArrowRight:'right',KeyD:'right',ArrowUp:'gas',KeyW:'gas',ArrowDown:'brake',KeyS:'brake',Space:'brake'};
 /* pause / restart */
 let pausedFrom=null;
@@ -1096,11 +1122,11 @@ function drawFX(dt){
 function confetti(){if(calm)return;for(let i=0;i<180;i++)confettiP.push({x:Math.random()*appW,y:-Math.random()*appH*.6,vx:(Math.random()-.5)*60,vy:70+Math.random()*130,r:Math.random()*6,vr:(Math.random()-.5)*8,col:['#f2c230','#ff8a1f','#ffffff','#14b8c9','#2fd27a'][i%5]})}
 
 /* ---------- career, garage, league ---------- */
-let RS={walls:0,passes:0,kills:0};
+let RS={walls:0,passes:0,kills:0,dealt:0,big:0};
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const okCol=c=>/^#[0-9a-f]{6}$/i.test(c||'')?c:'#555a66';
 const lum=h=>{h=okCol(h);const n=parseInt(h.slice(1),16);return (.299*(n>>16)+.587*(n>>8&255)+.114*(n&255))/255};
-const DEF_P={name:'',num:'1',col:'#ff8a1f',trim:'#14b8c9',cash:1000,xp:0,up:{engine:0,tires:0,armor:0},stats:{races:0,wins:0,podiums:0,kills:0,earned:0},best:{},ach:{},daily:{},leagues:[],streak:{last:'',n:0}};
+const DEF_P={name:'',num:'1',col:'#ff8a1f',trim:'#14b8c9',cash:1000,xp:0,up:{engine:0,tires:0,armor:0,ram:0,chassis:0,nitro:0},stats:{races:0,wins:0,podiums:0,kills:0,earned:0},best:{},ach:{},daily:{},leagues:[],streak:{last:'',n:0}};
 const clone=o=>JSON.parse(JSON.stringify(o));
 function merge(d,s){const o=clone(d);for(const k in s){if(s[k]&&typeof s[k]==='object'&&!Array.isArray(s[k])&&o[k]&&typeof o[k]==='object'&&!Array.isArray(o[k]))o[k]=Object.assign(o[k],s[k]);else o[k]=s[k]}return o}
 let P=clone(DEF_P),DB=null,UID=null,profRef=null,saveBusy=false,saveAgain=false,saveT=0;
@@ -1108,7 +1134,9 @@ try{const s=localStorage.getItem('sts-profile');if(s)P=merge(DEF_P,JSON.parse(s)
 const PAINTS=['#ff8a1f','#e8473b','#f2c230','#3a72e8','#14b8c9','#57c84d','#8f4fd8','#ff5fa2','#f1f1ee','#2b2f3a'];
 const TRIMS=['#14b8c9','#ffffff','#111111','#f2c230','#e8473b','#3a72e8'];
 const MODE_NAME={short:'Short Track',dirt:'Dirt Track',derby:'Demolition Derby'},DIFF_NAME={rookie:'Rookie',pro:'Pro',champ:'Champion'};
-const UPG=[{k:'engine',name:'Engine',desc:'More top speed in every event'},{k:'tires',name:'Tires',desc:'More grip through the turns'},{k:'armor',name:'Derby armor',desc:'Take less damage in the derby'}];
+const UPG=[{k:'engine',name:'Engine',desc:'More top speed in every event',g:'RACING'},{k:'tires',name:'Tires',desc:'More grip through the turns',g:'RACING'},
+  {k:'ram',name:'Ram bar',desc:'Hit harder with your nose and take less damage doing it',g:'DERBY'},{k:'armor',name:'Roll cage',desc:'Take less damage from every hit',g:'DERBY'},
+  {k:'chassis',name:'Heavy chassis',desc:'Shove cars around and get knocked around less; a bit slower',g:'DERBY'},{k:'nitro',name:'Nitro',desc:'One burst of speed and extra hitting power per level, each derby',g:'DERBY'}];
 const COST=[600,1200,2200,3600,5500];
 const ACH=[
   {id:'first',name:'Green Flag',desc:'Finish your first event'},
@@ -1149,7 +1177,7 @@ function finishCareer(pos){
   const r={mode,pos,laps,diff,walls:RS.walls,passes:RS.passes,kills:RS.kills,dead:!!p.dead};
   const dm=diff==='rookie'?.7:diff==='champ'?1.4:1,posPay=[2000,1500,1200,1000,850,700,600,500][pos-1]||400;
   let cash=0;const add=(a,b)=>{lines.push([a,b]);cash+=b};
-  if(mode==='derby'){add(ord(pos)+' place',Math.round(posPay*.8*dm));if(r.kills)add(r.kills+(r.kills>1?' takeouts':' takeout'),r.kills*300);if(!r.dead)add('Still running',400)}
+  if(mode==='derby'){add(ord(pos)+' place',Math.round(posPay*.8*dm));if(r.kills)add(r.kills+(r.kills>1?' takeouts':' takeout'),r.kills*300);if(RS.big)add(RS.big+(RS.big>1?' big hits':' big hit'),RS.big*60);if(RS.dealt>=10)add('Damage dealt',Math.round(RS.dealt*3));if(!r.dead)add('Still running',400)}
   else{add(ord(pos)+' place',Math.round(posPay*clamp(laps/10,.5,2.5)*dm));if(r.passes)add(r.passes+(r.passes>1?' passes':' pass'),r.passes*40);
     if(r.walls===0&&laps>=5)add('Clean race',300);const fl=Math.min(...cars.map(c=>c.best||1e9));if(p.best&&p.best<=fl)add('Fastest lap',250)}
   const dly=dailyToday();if(P.daily[t]!==dly.id&&dly.test(r)){P.daily={[t]:dly.id};add('Daily challenge',1500);r.daily=true}
@@ -1207,8 +1235,8 @@ function renderGarage(){
   if(document.activeElement!==$('gNum'))$('gNum').value=P.num;
   $('gPaint').innerHTML=PAINTS.map(c=>`<button type="button" style="--s:${c}" data-paint="${c}" aria-label="Paint ${c}" aria-pressed="${c===P.col}"></button>`).join('');
   $('gTrim').innerHTML=TRIMS.map(c=>`<button type="button" style="--s:${c}" data-trim="${c}" aria-label="Stripes ${c}" aria-pressed="${c===P.trim}"></button>`).join('');
-  $('gUp').innerHTML=UPG.map(u=>{const lv=P.up[u.k]||0,max=lv>=5,cost=COST[lv];
-    return `<div class="upg"><b>${u.name}</b><button class="buy" type="button" data-buy="${u.k}" ${max||P.cash<cost?'disabled':''}>${max?'MAX':'$'+cost.toLocaleString()}</button><small>${u.desc}</small><div class="pips">${[0,1,2,3,4].map(i=>`<i class="${i<lv?'on':''}"></i>`).join('')}</div></div>`}).join('');
+  let lastG='';$('gUp').innerHTML=UPG.map(u=>{const lv=P.up[u.k]||0,max=lv>=5,cost=COST[lv],hd=u.g!==lastG?`<h3>${u.g==='DERBY'?'DERBY SHOP':'RACING'}</h3>`:'';lastG=u.g;
+    return hd+`<div class="upg"><b>${u.name}</b><button class="buy" type="button" data-buy="${u.k}" ${max||P.cash<cost?'disabled':''}>${max?'MAX':'$'+cost.toLocaleString()}</button><small>${u.desc}</small><div class="pips">${[0,1,2,3,4].map(i=>`<i class="${i<lv?'on':''}"></i>`).join('')}</div></div>`}).join('');
   drawPreview();
 }
 $('gName').addEventListener('input',e=>{P.name=e.target.value.slice(0,16);renderHub();drawPreview();saveSoon()});
@@ -1349,7 +1377,7 @@ function cleanP(){
   const o=(x)=>x&&typeof x==='object'&&!Array.isArray(x)?x:{};
   P.name=String(P.name||'').slice(0,16);P.num=String(P.num||'1').replace(/\D/g,'').slice(0,2)||'1';
   P.col=okCol(P.col);P.trim=okCol(P.trim);P.cash=Math.floor(num(P.cash));P.xp=Math.floor(num(P.xp));
-  const up=o(P.up);P.up={};for(const k of ['engine','tires','armor'])P.up[k]=Math.floor(num(up[k],0,5));
+  const up=o(P.up);P.up={};for(const k of ['engine','tires','armor','ram','chassis','nitro'])P.up[k]=Math.floor(num(up[k],0,5));
   const st=o(P.stats);P.stats={};for(const k of Object.keys(DEF_P.stats))P.stats[k]=Math.floor(num(st[k]));
   const b=o(P.best);P.best={};for(const m of ['short','dirt'])if(b[m])P.best[m]=num(b[m],0,9999);
   const a=o(P.ach);P.ach={};for(const x of ACH)if(a[x.id])P.ach[x.id]=String(a[x.id]).slice(0,12);
@@ -1461,7 +1489,10 @@ function init3D(){
       sparks:mkPts(400,.45,'rgba(255,200,110,1)',THREE.AdditiveBlending,1),
       smoke:mkPts(400,2.6,'rgba(190,195,205,1)',THREE.NormalBlending,.35),
       dust:mkPts(500,3.2,'rgba(170,125,85,1)',THREE.NormalBlending,.4),
-      dark:mkPts(300,3,'rgba(40,40,44,1)',THREE.NormalBlending,.55)};
+      dark:mkPts(300,3,'rgba(40,40,44,1)',THREE.NormalBlending,.55),
+      fire:mkPts(400,1.9,'rgba(255,140,40,1)',THREE.AdditiveBlending,1)};
+    {const dm=new THREE.InstancedMesh(new THREE.BoxGeometry(1,.45,.7),new THREE.MeshStandardMaterial({color:0xffffff,metalness:.4,roughness:.5,envMap:env}),150);
+      dm.count=0;dm.castShadow=true;dm.frustumCulled=false;scene.add(dm);G3.deb=dm;G3.debM=new THREE.Matrix4();G3.debQ=new THREE.Quaternion();G3.debE=new THREE.Euler();G3.debC=new THREE.Color()}
     gl.hidden=false;$('cv').style.visibility='hidden';
     $('mirror').style.visibility='hidden';$('mirrorBox').style.background='transparent';
     build3D();resize();applyView();
@@ -1604,6 +1635,12 @@ function carMesh3D(c){
   // soft contact shadow
   const shd=new T.Mesh(new T.PlaneGeometry(4.4,2.3),new T.MeshBasicMaterial({map:glowTex(c.isPlayer?'rgba(255,138,31,.9)':'rgba(0,0,0,.85)'),transparent:true,depthWrite:false,opacity:c.isPlayer?.6:.7}));
   shd.rotation.x=-PI/2;shd.position.y=.04;g.add(shd);
+  if(mode==='derby'){const steel=new T.MeshStandardMaterial({color:0x55595f,metalness:.7,roughness:.45,envMap:env});
+    if(c.ram>0){const h=.14+.04*c.ram;const bar=new T.Mesh(new T.BoxGeometry(.16,h,1.5+.06*c.ram),blk);bar.position.set(1.98,.42,0);bar.castShadow=true;g.add(bar);
+      for(const z of [.45,-.45]){const u=new T.Mesh(new T.BoxGeometry(.08,.34,.08),steel);u.position.set(1.92,.5,z);g.add(u)}}
+    if(c.cage>0){for(const sd of [1,-1]){const pl=new T.Mesh(new T.BoxGeometry(1.4,.32+.03*c.cage,.03),steel);pl.position.set(-.1,.5,sd*(.62+.12+.03));g.add(pl);
+      for(let k=0;k<Math.min(4,c.cage+1);k++){const rv=new T.Mesh(new T.SphereGeometry(.03,6,4),steel);rv.position.set(-.7+k*.4,.62,sd*(.62+.12+.05));g.add(rv)}}}
+    if(c.chassis>0){const sk=new T.Mesh(new T.BoxGeometry(3.3,.08+.02*c.chassis,1.62),blk);sk.position.set(0,.22,0);g.add(sk)}}
   g.rotation.order='YXZ';
   const wind=new T.Object3D();g.add(wind);
   const wht=new T.Color(1,1,1);
@@ -1629,14 +1666,18 @@ function render3D(dt){
     for(const wh of ud.wheels)wh.rotation.z-=c.v*S3*dt/.34;
     ud.bl.color.setHex(c.brake&&c.v>15?0xff2a1a:0x550000);
     if(mode==='derby'){const k=c.dead?.28:.45+.55*Math.max(0,c.hp)/100;for(const [mm,base] of ud.tints)mm.color.copy(base).multiplyScalar(k);
-      ud.body.scale.y=c.dead?.8:1;ud.cab.rotation.x=c.dead?.12:(1-c.hp/100)*.08}}
+      ud.body.scale.y=c.dead?.8:1;ud.body.scale.x=1-(1-Math.max(0,c.hp)/100)*.12;ud.cab.rotation.x=c.dead?.12:(1-c.hp/100)*.08}}
   // particles
-  const sp=[],sm=[],du=[],dk=[];for(const p of sparks){if(!p.smoke)sp.push(p);else if(p.dust)du.push(p);else if(p.dark)dk.push(p);else sm.push(p)}
+  const sp=[],sm=[],du=[],dk=[],fi=[];for(const p of sparks){if(!p.smoke)sp.push(p);else if(p.fire)fi.push(p);else if(p.dust)du.push(p);else if(p.dark)dk.push(p);else sm.push(p)}
   const base=p=>mode==='derby'?0:trackY(trackInfo(p.x,p.y).s,Math.min(W/2,trackInfo(p.x,p.y).off));
   fillPts(G3.sparks,sp,p=>[p.x*S3,.5+base(p),p.y*S3]);
   fillPts(G3.smoke,sm,p=>[p.x*S3,.6+(1-p.life)*1.5+base(p),p.y*S3]);
   fillPts(G3.dust,du,p=>[p.x*S3,.5+(1-p.life)*1.4+base(p),p.y*S3]);
   fillPts(G3.dark,dk,p=>[p.x*S3,1+(1-p.life)*3,p.y*S3]);
+  fillPts(G3.fire,fi,p=>[p.x*S3,.7+(1-p.life)*1.6,p.y*S3]);
+  {const dm=G3.deb,list=mode==='derby'?debrisP:[],n=Math.min(list.length,150);for(let i=0;i<n;i++){const d=list[i];G3.debE.set(d.r,d.r*.7,d.r*.4);G3.debQ.setFromEuler(G3.debE);
+      const sc=d.s*2.2;G3.debM.compose(new THREE.Vector3(d.x*S3,d.z*S3+.1,d.y*S3),G3.debQ,new THREE.Vector3(sc,sc,sc));dm.setMatrixAt(i,G3.debM);G3.debC.set(okCol(d.col));dm.setColorAt(i,G3.debC)}
+    dm.count=n;dm.instanceMatrix.needsUpdate=true;if(dm.instanceColor)dm.instanceColor.needsUpdate=true}
   if(G3.sun){const sx=f.x*S3,sz=f.y*S3;G3.sun.position.set(sx+18,60,sz+12);G3.sun.target.position.set(sx,0,sz);G3.sun.target.updateMatrixWorld()}
   // camera
   const a=camA,fx=Math.cos(a),fz=Math.sin(a),fy=mode==='derby'?0:trackY(f.s,f.off);
